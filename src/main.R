@@ -37,30 +37,7 @@ softmax <- function(x) {
   e / sum(e)
 }
 
-# Vecteur de paramètres → theta (décodage)
-decode_theta <- function(params, D) {
-  
-  alpha <- softmax(params[1:D])
-  
-  P_raw <- matrix(params[(D+1):(D+D^2)], nrow=D)
-  diag(P_raw) <- -Inf
-  P <- t(apply(P_raw, 1, softmax))
-  
-  log_omega <- matrix(params[(D+D^2+1):length(params)], ncol=2)
-  omega <- exp(log_omega)
-  colnames(omega) <- c("eta", "beta")
-  
-  list(alpha=alpha, P=P, omega=omega)
-}
 
-# theta → vecteur de paramètres (encodage, pour initialisation)
-encode_theta <- function(theta, D) {
-  c(
-    log(theta$alpha),          # softmax inverse ≈ log
-    as.vector(log(theta$P + 1e-10)),  # idem
-    as.vector(log(theta$omega))
-  )
-}
 
 # Negative log-likelihood (optim minimise)
 neg_ll <- function(params, df, D) {
