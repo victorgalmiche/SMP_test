@@ -28,10 +28,10 @@ decode_P <- function(params, D){
   return(P)
 }
 
-decode_omega <- function(params, D){
-  # params vecteur de longeur Dx2 mais avec log(omega)
-  matrix_params <- matrix(params, nrow=D)
-  omega <- exp(params)
+decode_omega <- function(params, D) {
+  matrix_params <- matrix(params, nrow = D)
+  matrix_params <- pmax(pmin(matrix_params, 10), -10)  # clamp dans [-10, 10]
+  omega <- exp(matrix_params)
   colnames(omega) <- c('eta', 'beta')
   return(omega)
 }
@@ -49,12 +49,48 @@ encode_theta <- function(theta, D) {
 
 neg_ll_params_P <- function(params_P, df, D) {
   P <- decode_P(params_P, D)
-  - log_likelihood_P(df, P)
+  ll <- log_likelihood_P(df, P)
+  if (!is.finite(ll)) return(1e10)
+  -ll
 }
 
 neg_ll_params_omega <- function(params_omega, df, D) {
   omega <- decode_omega(params_omega, D)
-  - log_likelihood_omega(df, omega)
+  
+  # Weibull exige eta > 0 et beta > 0 (garanti par exp, mais vérifier les extrêmes)
+  if (any(omega <= 0) || any(!is.finite(omega))) return(1e10)
+  
+  ll <- log_likelihood_omega(df, omega)
+  
+  if (!is.finite(ll)) return(1e10)
+  -ll
+}
+
+# Ajout d'une fonction pour initialiser les paramètres
+init_params_omega <- function(df, D) {
+  params <- numeric(2 * D)
+  for (s in 1:D) {
+    times <- df$time[df$state.h == s]
+    if (length(times) < 2) next  # garder 0 si pas assez de données
+    
+    m  <- mean(times)
+    cv <- sd(times) / m  # coefficient de variation
+    
+    # Approximation Weibull par moments
+    # cv ≈ sqrt(gamma(1+2/eta)/gamma(1+1/eta)^2 - 1)
+    # On résout numériquement
+    eta_init <- tryCatch({
+      uniroot(function(eta) {
+        sqrt(gamma(1 + 2/eta) / gamma(1 + 1/eta)^2 - 1) - cv
+      }, interval = c(0.1, 20))$root
+    }, error = function(e) 1.0)  # fallback
+    
+    beta_init <- m / gamma(1 + 1/eta_init)
+    
+    params[s]     <- log(eta_init)
+    params[s + D] <- log(beta_init)
+  }
+  params
 }
 
 
@@ -77,7 +113,7 @@ mle_fit <- function(df, D){
   P_hat <- decode_P(res_P$par, D)
   
   res_omega <- optim(
-    par = rep(0, 2*D), 
+    par = init_params_omega(df, D), 
     fn = neg_ll_params_omega, 
     df = df, 
     D = D, 

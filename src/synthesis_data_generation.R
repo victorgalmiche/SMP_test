@@ -11,8 +11,8 @@ generate_theta <- function(D){
   P <- P/rowSums(P)
   
   # temps de séjour - Weibull distribution
-  eta <- rexp(D) # shape 
-  beta <- rexp(D) # scale 
+  eta <- rexp(D, rate=0.8) # shape 
+  beta <- rexp(D, rate=0.15) # scale 
   omega <- cbind(eta, beta)
   
   return (list(alpha=alpha, P=P, omega=omega))
@@ -42,6 +42,6 @@ generate_dataset_H0 <- function(D, n1, n2, M){
   time <- as.vector(t(sojournTimes[, 1:M]))
   df <- data.frame(id=id, state.h=state.h, state.j=state.j, time=time)
   
-  return(df)
+  return(list(data=df, theta=theta))
 } 
 
