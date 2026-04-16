@@ -19,8 +19,7 @@ generate_theta <- function(D){
 }
 
 # Fonction permettant de générer un dataset
-generate_dataset_H0 <- function(D, n1, n2, M){
-  theta <- generate_theta(D)
+generate_dataset_H0 <- function(theta, D, n1, n2, M){
   n <- n1 + n2
   
   # Génération chaînes
@@ -42,6 +41,6 @@ generate_dataset_H0 <- function(D, n1, n2, M){
   time <- as.vector(t(sojournTimes[, 1:M]))
   df <- data.frame(id=id, state.h=state.h, state.j=state.j, time=time)
   
-  return(list(data=df, theta=theta))
+  return(df)
 } 
 
