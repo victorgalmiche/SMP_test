@@ -5,6 +5,7 @@ D <- 4
 n1 <- 30
 n2 <- 30
 M <- 5
+exp_size <- 100
 
 library(parallel)
 cl <- makeCluster(detectCores() - 1, rscript_args = "--vanilla")
@@ -14,7 +15,7 @@ p_values <- parSapply(cl, 1:exp_size, function(i) {
   repeat {
     theta <- generate_theta(D)
     df    <- generate_dataset_H0(theta, D, n1, n2, M)
-    result <- tryCatch(parametric_bootstrap(df, D, n1, n2), error = function(e) NA)
+    result <- tryCatch(permutation_test(df, D, n1, n2, R=100), error = function(e) NA)
     if (!is.na(result)) break
   }
   result
