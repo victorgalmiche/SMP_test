@@ -11,9 +11,14 @@ generate_theta <- function(D){
   P <- P/rowSums(P)
   
   # temps de séjour - Weibull distribution
-  eta <- rexp(D, rate=0.8) # shape 
-  beta <- rexp(D, rate=0.15) # scale 
-  omega <- cbind(eta, beta)
+  # eta <- rexp(D, rate=0.8) # shape 
+  # beta <- rexp(D, rate=0.15) # scale 
+  # omega <- cbind(eta, beta)
+  
+  # temps de séjour - Gamma distribution 
+  a <- rexp(D, rate=0.5) # shape
+  lambda <- rexp(D, rate=3) # rate = 1/scale
+  omega <- cbind(a, lambda)
   
   return (list(alpha=alpha, P=P, omega=omega))
 }
@@ -32,7 +37,8 @@ generate_dataset_H0 <- function(theta, D, n1, n2, M){
   } 
   
   # Temps de séjour
-  sojournTimes <- apply(states, c(1,2), function(s) rweibull(1, shape=theta$omega[s, 'eta'], scale=theta$omega[s, 'beta']))
+  # sojournTimes <- apply(states, c(1,2), function(s) rweibull(1, shape=theta$omega[s, 'eta'], scale=theta$omega[s, 'beta']))
+  sojournTimes <- apply(states, c(1,2), function(s) rgamma(1, shape=theta$omega[s, 'a'], rate=theta$omega[s, 'lambda']))
   
   # DataFrame respectant le format de SemiMarkov
   id <- rep(1:n, each=M)
