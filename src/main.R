@@ -5,13 +5,16 @@ D <- 4
 n1 <- 30
 n2 <- 30
 M <- 5
-exp_size <- 100
+exp_size <- 100 # Nombre de dataset sur lesquels faire les expériences 
 
-library(parallel)
-cl <- makeCluster(detectCores() - 1, rscript_args = "--vanilla")
-clusterExport(cl, ls())  # export all functions/variables
+library(doParallel)
+library(foreach)
 
-p_values <- parSapply(cl, 1:exp_size, function(i) {
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+clusterExport(cl, ls())
+
+p_values <- foreach(i = 1:exp_size, .combine = c) %dopar% {
   repeat {
     theta <- generate_theta(D)
     df    <- generate_dataset_H0(theta, D, n1, n2, M)
@@ -19,7 +22,8 @@ p_values <- parSapply(cl, 1:exp_size, function(i) {
     if (!is.na(result)) break
   }
   result
-})
+}
+
 stopCluster(cl)
 
 par(mar = c(4, 4, 2, 1))
