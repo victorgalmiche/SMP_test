@@ -58,6 +58,27 @@ mle_omega <- function(df, D) {
   omega
 }
 
+mle_gamma_closed <- function(x) {
+  s <- log(mean(x)) - mean(log(x))   # toujours > 0
+  # Approximation de Choi & Wette (1969) pour shape
+  shape <- (3 - s + sqrt((s-3)^2 + 24*s)) / (12*s)
+  # Affinage par Newton (1-2 itérations suffisent)
+  for (k in 1:5) {
+    shape <- shape - (log(shape) - digamma(shape) - s) /
+      (1/shape - trigamma(shape))
+  }
+  rate <- shape / mean(x)
+  c(a = shape, lambda = rate)
+}
+
+mle_omega_closed <- function(df, D) {
+  t(sapply(1:D, function(i) {
+    times_i <- df$time[df$state.h == i]
+    if (length(times_i) < 2) return(c(a=1, lambda=1))
+    mle_gamma_closed(times_i)
+  }))
+}
+
 
 ### MAXIMUM LIKELIHOOD ESTIMATION ###
 mle_fit <- function(df, D){
@@ -68,7 +89,8 @@ mle_fit <- function(df, D){
   P_hat <- mle_P(df, D)
   ll_P <- log_likelihood_P(df, P_hat)
   
-  omega_hat <- mle_omega(df, D)
+  # omega_hat <- mle_omega(df, D)
+  omega_hat <- mle_omega_closed(df, D)
   ll_omega <- log_likelihood_omega(df, omega_hat)
   
   theta_hat <- list(alpha=alpha_hat, P=P_hat, omega=omega_hat)

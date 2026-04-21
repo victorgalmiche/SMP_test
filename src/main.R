@@ -1,7 +1,7 @@
 source('src/synthesis_data_generation.R')
 source('src/two_samples_test.R')
 
-D <- 4
+D <- 7
 n1 <- 30
 n2 <- 30
 M <- 5
