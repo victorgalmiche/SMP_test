@@ -2,7 +2,7 @@ source('src/synthesis_data_generation.R')
 source('src/two_samples_test.R')
 
 # Generate one test dataset
-set.seed(123)
+# set.seed(123)
 D <- 4
 n1 <- 30
 n2 <- 30
@@ -60,3 +60,4 @@ cat("Is negative?", lambda < 0, "\n")
 dof <- D^2 + D - 1
 p_val <- 1 - pchisq(lambda, df = dof)
 cat("p-value:", p_val, "\n")
+
