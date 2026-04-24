@@ -1,7 +1,8 @@
 # We dispose of a dataframe respecting the semiMarkov library canvas
 ### LOG-LIKELIHOOD (DECOMPOSEE) ###
 log_likelihood_P <- function(df, P){
-  sum(log(P[cbind(df$state.h, df$state.j)]))
+  P_safe <- pmax(P, 1e-10) # To avoid log(0)
+  sum(log(P_safe[cbind(df$state.h, df$state.j)]))
 }
 
 
