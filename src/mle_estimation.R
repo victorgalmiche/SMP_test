@@ -29,7 +29,7 @@ mle_P <- function(df, D) {
   
   # Normalize each row by off-diagonal sum (closed-form MLE under constraint)
   row_sums <- rowSums(counts)
-  row_sums[row_sums == 0] <- 1  # avoid NaN for unvisited states
+  row_sums[row_sums == 0] <- Inf  # avoid NaN for unvisited states
   counts / row_sums
 }
 
