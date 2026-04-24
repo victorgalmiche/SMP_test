@@ -46,7 +46,7 @@ mle_omega_nm <- function(df, D){
     
     # Objective function: negative log likelihood
     nll <- function(pars){
-      if (pars[1] <= 0 || pars[2] <= 0) return (1e-10) # Penalize invalid parameters
+      if (pars[1] <= 0 || pars[2] <= 0) return (1e10) # Penalize invalid parameters
       - sum(dgamma(times_i, shape=pars[1], rate=pars[2], log=TRUE))
     }
     
@@ -69,7 +69,12 @@ mle_omega_nm <- function(df, D){
     start <- c(shape=shape_start, rate=rate_start)
     
     # Optimization w/ Nelder-Mead
-    result <- optim(start, nll, method='Nelder-Mead', control=list(maxit=1000, reltol=1e-8))
+    result <- tryCatch(
+      optim(start, nll, 
+            method='Nelder-Mead', 
+            control=list(maxit=1000, reltol=1e-8)),
+      error = function(e) list(par=start, convergence=1)
+    )
     
     omega[i, 'a'] <- result$par[1]
     omega[i, 'lambda'] <- result$par[2]
