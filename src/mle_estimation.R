@@ -41,17 +41,32 @@ mle_omega_nm <- function(df, D){
     
     if (length(times_i) < 2) {
       warning(paste('State', i, 'has not enough observations'))
+      next
     }
     
     # Objective function: negative log likelihood
     nll <- function(pars){
+      if (pars[1] <= 0 || pars[2] <= 0) return (1e-10) # Penalize invalid parameters
       - sum(dgamma(times_i, shape=pars[1], rate=pars[2], log=TRUE))
     }
     
     # Starting w/ values based on the method of moments
     mean_x <- mean(times_i)
     var_x <- var(times_i)
-    start <- c(shape=mean_x^2/var_x, rate=mean_x/var_x)
+    
+    # Ensure var_x is positive and not too small
+    if (var_x <= 0 || is.na(var_x)) {
+      var_x <- mean_x^2 / 10  # Use fallback if variance is invalid
+    }
+    
+    # Calculate method of moments starting values with safety checks
+    shape_start <- mean_x^2 / var_x
+    rate_start <- mean_x / var_x
+    
+    # Ensure starting values are positive and reasonable
+    shape_start <- max(0.1, min(shape_start, 100))
+    rate_start <- max(0.01, min(rate_start, 100))
+    start <- c(shape=shape_start, rate=rate_start)
     
     # Optimization w/ Nelder-Mead
     result <- optim(start, nll, method='Nelder-Mead', control=list(maxit=1000, reltol=1e-8))
