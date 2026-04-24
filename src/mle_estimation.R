@@ -34,6 +34,30 @@ mle_P <- function(df, D) {
 
 
 ### MLE pour omega ###
+moments_omega <- function(df, D){
+  omega <- matrix(1, nrow=D, ncol=2, dimnames=list(1:D, c("a", "lambda")))
+  for (i in 1:D){
+    times_i <- df$time[df$state.h==i]
+    
+    if (length(times_i) < 2) {
+      warning(paste('State', i, 'has not enough observations'))
+      next
+    }
+    
+    # Starting w/ values based on the method of moments
+    mean_x <- mean(times_i)
+    var_x <- var(times_i)
+    
+    # Calculate method of moments starting values with safety checks
+    shape <- mean_x^2 / var_x
+    rate <- mean_x / var_x
+  
+    omega[i, 'a'] <- shape
+    omega[i, 'lambda'] <- rate
+  }
+  omega
+}
+
 mle_omega_nm <- function(df, D){
   omega <- matrix(1, nrow=D, ncol=2, dimnames=list(1:D, c("a", "lambda")))
   for (i in 1:D){
@@ -92,7 +116,7 @@ mle_fit <- function(df, D){
   P_hat <- mle_P(df, D)
   ll_P <- log_likelihood_P(df, P_hat)
   
-  omega_hat <- mle_omega_nm(df, D)
+  omega_hat <- moments_omega(df, D)
   ll_omega <- log_likelihood_omega(df, omega_hat)
   
   theta_hat <- list(alpha=alpha_hat, P=P_hat, omega=omega_hat)
