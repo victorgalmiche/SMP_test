@@ -1,7 +1,7 @@
 source('src/synthesis_data_generation.R')
 source('src/two_samples_test.R')
 
-D <- 7
+D <- 4
 n1 <- 30
 n2 <- 30
 M <- 5
@@ -15,12 +15,9 @@ registerDoParallel(cl)
 clusterExport(cl, ls())
 
 p_values <- foreach(i = 1:exp_size, .combine = c) %dopar% {
-  repeat {
-    theta <- generate_theta(D)
-    df    <- generate_dataset_H0(theta, D, n1, n2, M)
-    result <- tryCatch(permutation_test(df, D, n1, n2, R=100), error = function(e) NA)
-    if (!is.na(result)) break
-  }
+  theta <- generate_theta(D)
+  df <- generate_dataset_H0(theta, D, n1, n2, M)
+  result <- likelihood_ratio_test(df, D, n1, n2)
   result
 }
 

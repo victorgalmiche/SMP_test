@@ -34,49 +34,32 @@ mle_P <- function(df, D) {
 
 
 ### MLE pour omega ###
-library(fitdistrplus)
-
-mle_omega <- function(df, D) {
-  # Initialize matrix of parameters
-  omega <- matrix(1, nrow = D, ncol = 2,
-                  dimnames = list(1:D, c("a", "lambda")))
-  
-  for (i in 1:D) {
-    times_i <- df$time[df$state.h == i]
+mle_omega_nm <- function(df, D){
+  omega <- matrix(1, nrow=D, ncol=2, dimnames=list(1:D, c("a", "lambda")))
+  for (i in 1:D){
+    times_i <- df$time[df$state.h==i]
     
     if (length(times_i) < 2) {
-      warning(paste("État", i, ": pas assez d'observations"))
-      next
+      warning(paste('State', i, 'has not enough observations'))
     }
     
-    fit <- fitdist(times_i, distr = "gamma", method = "mle",
-                   lower = c(shape = 1e-6, rate = 1e-6))
+    # Objective function: negative log likelihood
+    nll <- function(pars){
+      - sum(dgamma(times_i, shape=pars[1], rate=pars[2], log=TRUE))
+    }
     
-    omega[i, "a"]      <- fit$estimate["shape"]
-    omega[i, "lambda"] <- fit$estimate["rate"]
+    # Starting w/ values based on the method of moments
+    mean_x <- mean(times_i)
+    var_x <- var(times_i)
+    start <- c(shape=mean_x^2/var_x, rate=mean_x/var_x)
+    
+    # Optimization w/ Nelder-Mead
+    result <- optim(start, nll, method='Nelder-Mead', control=list(maxit=1000, reltol=1e-8))
+    
+    omega[i, 'a'] <- result$par[1]
+    omega[i, 'lambda'] <- result$par[2]
   }
   omega
-}
-
-mle_gamma_closed <- function(x) {
-  s <- log(mean(x)) - mean(log(x))   # toujours > 0
-  # Approximation de Choi & Wette (1969) pour shape
-  shape <- (3 - s + sqrt((s-3)^2 + 24*s)) / (12*s)
-  # Affinage par Newton (1-2 itérations suffisent)
-  for (k in 1:5) {
-    shape <- shape - (log(shape) - digamma(shape) - s) /
-      (1/shape - trigamma(shape))
-  }
-  rate <- shape / mean(x)
-  c(a = shape, lambda = rate)
-}
-
-mle_omega_closed <- function(df, D) {
-  t(sapply(1:D, function(i) {
-    times_i <- df$time[df$state.h == i]
-    if (length(times_i) < 2) return(c(a=1, lambda=1))
-    mle_gamma_closed(times_i)
-  }))
 }
 
 
@@ -89,8 +72,7 @@ mle_fit <- function(df, D){
   P_hat <- mle_P(df, D)
   ll_P <- log_likelihood_P(df, P_hat)
   
-  # omega_hat <- mle_omega(df, D)
-  omega_hat <- mle_omega_closed(df, D)
+  omega_hat <- mle_omega_nm(df, D)
   ll_omega <- log_likelihood_omega(df, omega_hat)
   
   theta_hat <- list(alpha=alpha_hat, P=P_hat, omega=omega_hat)

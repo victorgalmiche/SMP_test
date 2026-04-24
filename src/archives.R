@@ -76,3 +76,49 @@ decode_omega <- function(params, D) {
   return(omega)
 }
 
+
+
+library(fitdistrplus)
+
+mle_omega <- function(df, D) {
+  # Initialize matrix of parameters
+  omega <- matrix(1, nrow = D, ncol = 2,
+                  dimnames = list(1:D, c("a", "lambda")))
+  
+  for (i in 1:D) {
+    times_i <- df$time[df$state.h == i]
+    
+    if (length(times_i) < 2) {
+      warning(paste("État", i, ": pas assez d'observations"))
+      next
+    }
+    
+    fit <- fitdist(times_i, distr = "gamma", method = "mle",
+                   lower = c(shape = 1e-6, rate = 1e-6))
+    
+    omega[i, "a"]      <- fit$estimate["shape"]
+    omega[i, "lambda"] <- fit$estimate["rate"]
+  }
+  omega
+}
+
+mle_gamma_closed <- function(x) {
+  s <- log(mean(x)) - mean(log(x))   # toujours > 0
+  # Approximation de Choi & Wette (1969) pour shape
+  shape <- (3 - s + sqrt((s-3)^2 + 24*s)) / (12*s)
+  # Affinage par Newton (1-2 itérations suffisent)
+  for (k in 1:5) {
+    shape <- shape - (log(shape) - digamma(shape) - s) /
+      (1/shape - trigamma(shape))
+  }
+  rate <- shape / mean(x)
+  c(a = shape, lambda = rate)
+}
+
+mle_omega_closed <- function(df, D) {
+  t(sapply(1:D, function(i) {
+    times_i <- df$time[df$state.h == i]
+    if (length(times_i) < 2) return(c(a=1, lambda=1))
+    mle_gamma_closed(times_i)
+  }))
+}
