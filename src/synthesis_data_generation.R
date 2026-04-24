@@ -38,7 +38,11 @@ generate_dataset_H0 <- function(theta, D, n1, n2, M){
   
   # Temps de séjour
   # sojournTimes <- apply(states, c(1,2), function(s) rweibull(1, shape=theta$omega[s, 'eta'], scale=theta$omega[s, 'beta']))
-  sojournTimes <- apply(states, c(1,2), function(s) rgamma(1, shape=theta$omega[s, 'a'], rate=theta$omega[s, 'lambda']))
+  sojournTimes <- apply(states, c(1,2), function(s) {
+    max(rgamma(1, shape=theta$omega[s, 'a'], rate=theta$omega[s, 'lambda']),
+        .Machine$double.xmin)
+  })
+
   
   # DataFrame respectant le format de SemiMarkov
   id <- rep(1:n, each=M)

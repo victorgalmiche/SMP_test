@@ -22,7 +22,7 @@ mle_P <- function(df, D) {
   counts <- tabulate(
     (df$state.h - 1) * D + df$state.j, 
     nbins = D * D
-  ) |> matrix(nrow = D, ncol = D)
+  ) |> matrix(nrow = D, ncol = D, byrow=TRUE)
   
   # Force diagonal to 0 (semi-Markov: no self-transitions)
   diag(counts) <- 0
