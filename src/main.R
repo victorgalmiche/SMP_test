@@ -10,7 +10,7 @@ exp_size <- 100 # Nombre de dataset sur lesquels faire les expériences
 library(doParallel)
 library(foreach)
 
-cl <- makeCluster(detectCores() - 1)
+cl <- makeCluster(50)
 registerDoParallel(cl)
 clusterExport(cl, ls())
 
