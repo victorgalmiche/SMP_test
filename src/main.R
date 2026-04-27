@@ -1,7 +1,7 @@
 library(doParallel)
 library(foreach)
 
-D <- 7; n1 <- 30; n2 <- 30; M <- 5; nb_datasets <- 100
+D <- 7; n1 <- 30; n2 <- 30; M <- 5; nb_datasets <- 500
 
 cl <- makeCluster(detectCores() - 1)
 registerDoParallel(cl)
@@ -27,7 +27,7 @@ p_permutation <- results[, "p_permutation"]
 # Plot
 par(mar = c(4, 4, 2, 1))
 plot(ecdf(p_asymp),
-     main = "n1=n2=30 and D=4",
+     main = "n1=n2=30 and D=7",
      xlab = "p-value",
      ylab = "Cumulative probability",
      col  = "red",
