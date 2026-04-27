@@ -1,5 +1,11 @@
 # We dispose of a dataframe respecting the semiMarkov library canvas
 ### LOG-LIKELIHOOD (DECOMPOSEE) ###
+log_likelihood_alpha <- function(df, alpha){
+  init_states <- tapply(df$state.h, df$id, head, 1)
+  sum(log(alpha[init_states]))
+}
+
+
 log_likelihood_P <- function(df, P){
   P_safe <- pmax(P, 1e-10) # To avoid log(0)
   sum(log(P_safe[cbind(df$state.h, df$state.j)]))
@@ -11,6 +17,13 @@ log_likelihood_omega <- function(df, omega){
              shape=omega[df$state.h, 'a'],
              rate=omega[df$state.h, 'lambda'],
              log=TRUE))
+}
+
+### MLE for alpha ###
+mle_alpha <- function(df, D) {
+  init_states  <- tapply(df$state.h, df$id, head, 1) # Extraction du premier état de chaque chaîne
+  counts <- as.vector(table(init_states)) # Nombre pour chaque état
+  counts/sum(counts) # Renormalize
 }
 
 
@@ -29,7 +42,7 @@ mle_P <- function(df, D) {
   
   # Normalize each row by off-diagonal sum (closed-form MLE under constraint)
   row_sums <- rowSums(counts)
-  row_sums[row_sums == 0] <- Inf  # avoid NaN for unvisited states
+  row_sums[row_sums == 0] <- Inf  # to get 0 for unvisited states
   counts / row_sums
 }
 
@@ -100,40 +113,49 @@ mle_omega_nm <- function(df, D){
     times_i <- df$time[df$state.h==i]
     
     if (length(times_i) < 2) {
-      warning(paste('State', i, 'has not enough observations'))
+      warning(paste('State', i, 'has less than 2 valid observations'))
       next
     }
     
     # Objective function: negative log likelihood
     nll <- function(pars){
-      if (pars[1] <= 0 || pars[2] <= 0) return (1e10) # Penalize invalid parameters
-      - sum(dgamma(times_i, shape=pars[1], rate=pars[2], log=TRUE))
+      if (pars[1] <= 0 || pars[2] <= 0) return(1e10)
+      ll <- sum(dgamma(times_i, shape=pars[1], rate=pars[2], log=TRUE))
+      if (!is.finite(ll)) return(1e10)
+      -ll
     }
     
-    # Starting w/ values based on the method of moments
+    # Starting values using method of moments
     mean_x <- mean(times_i)
     var_x <- var(times_i)
     
-    # Ensure var_x is positive and not too small
-    if (var_x <= 0 || is.na(var_x)) {
-      var_x <- mean_x^2 / 10  # Use fallback if variance is invalid
+    # Handle invalid variance
+    if (var_x <= 0 || !is.finite(var_x)) {
+      var_x <- (mean_x / 4)^2
     }
     
-    # Calculate method of moments starting values with safety checks
     shape_start <- mean_x^2 / var_x
     rate_start <- mean_x / var_x
     
-    # Ensure starting values are positive and reasonable
-    shape_start <- max(0.1, min(shape_start, 100))
-    rate_start <- max(0.01, min(rate_start, 100))
-    start <- c(shape=shape_start, rate=rate_start)
+    # Bound starting values to reasonable range
+    shape_start <- pmax(0.01, pmin(shape_start, 500))
+    rate_start <- pmax(0.001, pmin(rate_start, 500))
     
-    # Optimization w/ Nelder-Mead
+    # Test starting values
+    if (!is.finite(nll(c(shape_start, rate_start)))) {
+      warning(paste('State', i, 'invalid starting values'))
+      next
+    }
+    
+    # Optimize w/ Nelder-Mead
     result <- tryCatch(
-      optim(start, nll, 
-            method='Nelder-Mead', 
-            control=list(maxit=1000, reltol=1e-8)),
-      error = function(e) list(par=start, convergence=1)
+      optim(c(shape_start, rate_start), nll, 
+            method='Nelder-Mead',
+            control=list(maxit=5000)),
+      error = function(e) {
+        warning(paste('State', i, 'optimization error'))
+        list(par=c(shape_start, rate_start), convergence=1)
+      }
     )
     
     omega[i, 'a'] <- result$par[1]
@@ -145,18 +167,17 @@ mle_omega_nm <- function(df, D){
 
 ### MAXIMUM LIKELIHOOD ESTIMATION ###
 mle_fit <- function(df, D){
-  init_states  <- tapply(df$state.h, df$id, head, 1) # Extraction du premier état de chaque chaîne
-  alpha_hat <- as.vector(table(init_states)) # Nombre pour chaque état
-  alpha_hat <- alpha_hat/sum(alpha_hat)
+  alpha_hat <- mle_alpha(df, D)
+  ll_alpha <- log_likelihood_alpha(df, alpha_hat)
   
   P_hat <- mle_P(df, D)
   ll_P <- log_likelihood_P(df, P_hat)
   
-  omega_hat <- mle_omega(df, D)
+  omega_hat <- mle_omega_nm(df, D)
   ll_omega <- log_likelihood_omega(df, omega_hat)
   
   theta_hat <- list(alpha=alpha_hat, P=P_hat, omega=omega_hat)
-  ll <- sum(log(alpha_hat[init_states])) + ll_P + ll_omega
+  ll <- ll_alpha + ll_P + ll_omega
   
   return(list(estimator=theta_hat, log_likelihood=ll))
 }
