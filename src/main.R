@@ -1,7 +1,7 @@
 library(doParallel)
 library(foreach)
 
-D <- 7; n1 <- 30; n2 <- 30; M <- 5; nb_datasets <- 500
+D <- 7; n1 <- 30; n2 <- 30; M <- 5; nb_datasets <- 100
 
 cl <- makeCluster(detectCores() - 1)
 registerDoParallel(cl)

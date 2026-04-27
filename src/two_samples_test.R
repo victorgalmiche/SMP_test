@@ -50,26 +50,26 @@ parametric_bootstrap <- function(df, D, n1, n2, R=100) {
 
 
 permutation_test <- function(df, D, n1, n2, R=100) {
-  df1 <- subset(df, id<=n1)
-  df2 <- subset(df, id>n1)
+  df1 <- subset(df, id <= n1)
+  df2 <- subset(df, id > n1)
   
   global_est <- mle_fit(df, D)
-  est1 <- mle_fit(df1, D)
-  est2 <- mle_fit(df2, D)
+  est1       <- mle_fit(df1, D)
+  est2       <- mle_fit(df2, D)
   
-  Tl <- global_est$log_likelihood -est1$log_likelihood - est2$log_likelihood
-
+  Tl <- global_est$log_likelihood - est1$log_likelihood - est2$log_likelihood
   T_star <- numeric(R)
-  for (r in 1:R){
-    sample1_id <- sample(n1+n2, n1)
+  
+  for (r in 1:R) {
+    sample1_id   <- sample(n1 + n2, n1)
     df1_permuted <- subset(df, id %in% sample1_id)
     df2_permuted <- subset(df, !(id %in% sample1_id))
     
     est1 <- mle_fit(df1_permuted, D)
     est2 <- mle_fit(df2_permuted, D)
     
-    T_star[r] <- global_est$log_likelihood -est1$log_likelihood - est2$log_likelihood
+    T_star[r] <- global_est$log_likelihood - est1$log_likelihood - est2$log_likelihood
   }
-  p_permutation <- mean(T_star<=Tl)
-  p_permutation
+  
+  mean(T_star <= Tl, na.rm=TRUE)
 }
