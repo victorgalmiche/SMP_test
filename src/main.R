@@ -1,30 +1,41 @@
 library(doParallel)
 library(foreach)
 
-D <- 4; n1 <- 30; n2 <- 30; M <- 5; exp_size <- 100
+D <- 7; n1 <- 30; n2 <- 30; M <- 5; nb_datasets <- 100
 
 cl <- makeCluster(detectCores() - 1)
 registerDoParallel(cl)
 
-p_values <- foreach(i = 1:exp_size, .combine = c) %dopar% {
+results <- foreach(i = 1:nb_datasets, .combine = rbind) %dopar% {
   source('src/synthesis_data_generation.R')
   source('src/two_samples_test.R')
+  
   theta <- generate_theta(D)
   df    <- generate_dataset_H0(theta, D, n1, n2, M)
-  likelihood_ratio_test(df, D, n1, n2)
+  
+  p_asymp  <- likelihood_ratio_test(df, D, n1, n2)
+  p_permutation <- permutation_test(df, D, n1, n2)
+  
+  c(p_asymp=p_asymp, p_permutation=p_permutation)
 }
 
 stopCluster(cl)
 
+p_asymp  <- results[, "p_asymp"]
+p_permutation <- results[, "p_permutation"]
+
+# Plot
 par(mar = c(4, 4, 2, 1))
-plot(ecdf(p_values),
-     main = "ECDF des p-valeurs sous H0",
+plot(ecdf(p_asymp),
+     main = "n1=n2=30 and D=4",
      xlab = "p-value",
-     ylab = "F(x)",
-     col  = "steelblue")
-abline(a = 0, b = 1, col = "red", lty = 2)  # référence uniforme
-
-# Niveau empirique à 5%
-mean(p_values < 0.05)  # doit être ≈ 0.05
-
+     ylab = "Cumulative probability",
+     col  = "red",
+     do.points=FALSE)
+lines(ecdf(p_permutation), col = "green", do.points=FALSE)
+abline(a = 0, b = 1, col = "black")
+legend("bottomright",
+       legend = c("Chi^2", "Permutation", "Uniforme"),
+       col    = c("red", "green", "black"),
+       lty    = c(1, 1, 1))
 
