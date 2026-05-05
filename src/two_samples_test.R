@@ -60,6 +60,9 @@ permutation_test <- function(df, D, n1, n2, R=100) {
   Tl <- global_est$log_likelihood - est1$log_likelihood - est2$log_likelihood
   T_star <- numeric(R)
   
+  if (is.na(Tl)) stop("Tl is NA: mle_fit failed on observed data or full data")
+  
+  
   for (r in 1:R) {
     sample1_id   <- sample(n1 + n2, n1)
     df1_permuted <- subset(df, id %in% sample1_id)
