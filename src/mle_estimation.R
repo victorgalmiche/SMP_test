@@ -22,7 +22,7 @@ log_likelihood_omega <- function(df, omega){
 ### MLE for alpha ###
 mle_alpha <- function(df, D) {
   init_states  <- tapply(df$state.h, df$id, head, 1) # Extraction du premier état de chaque chaîne
-  counts <- as.vector(table(init_states)) # Nombre pour chaque état
+  counts <- tabulate(init_states, nbins = D) # Nombre pour chaque état
   counts/sum(counts) # Renormalize
 }
 

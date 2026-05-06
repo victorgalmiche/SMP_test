@@ -1,9 +1,8 @@
 source('src/synthesis_data_generation.R')
 source('src/mle_estimation.R')
 
-likelihood_ratio_test <- function(df, D, n1, n2){
-  df1 <- subset(df, id<=n1)
-  df2 <- subset(df, id>n1)
+likelihood_ratio_test <- function(df1, df2, D){
+  df <- rbind(df1, df2)
   
   global_est <- mle_fit(df, D)
   est1 <- mle_fit(df1, D)
@@ -21,9 +20,8 @@ likelihood_ratio_test <- function(df, D, n1, n2){
 }
 
 
-parametric_bootstrap <- function(df, D, n1, n2, R=100) {
-  df1 <- subset(df, id<=n1)
-  df2 <- subset(df, id>n1)
+parametric_bootstrap <- function(df1, df2, D, R=100) {
+  df <- rbind(df1, df2)
   
   global_est <- mle_fit(df, D)
   est1 <- mle_fit(df1, D)
@@ -49,9 +47,8 @@ parametric_bootstrap <- function(df, D, n1, n2, R=100) {
 }
 
 
-permutation_test <- function(df, D, n1, n2, R=100) {
-  df1 <- subset(df, id <= n1)
-  df2 <- subset(df, id > n1)
+permutation_test <- function(df1, df2, D, R=100) {
+  df <- rbind(df1, df2)
   
   global_est <- mle_fit(df, D)
   est1       <- mle_fit(df1, D)
