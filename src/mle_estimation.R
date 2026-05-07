@@ -172,7 +172,7 @@ mle_fit <- function(df, D){
   P_hat <- mle_P(df, D)
   ll_P <- log_likelihood_P(df, P_hat)
   
-  omega_hat <- mle_omega_bfgs(df, D)
+  omega_hat <- mle_omega_nm(df, D)
   ll_omega <- log_likelihood_omega(df, omega_hat)
   
   theta_hat <- list(alpha=alpha_hat, P=P_hat, omega=omega_hat)
