@@ -10,15 +10,14 @@ cl <- makeCluster(detectCores() - 1)
 registerDoParallel(cl)
 
 results <- foreach(
-  i          = 1:nb_datasets,
-  .combine   = rbind,
-  .export    = c("generate_theta", "generate_dataset_H0",
-                 "likelihood_ratio_test", "permutation_test"),
-  .errorhandling = 'remove' 
+  i = 1:nb_datasets,
+  .combine = rbind,
+  .export = c("generate_theta", "generate_dataset_H0", 
+              "likelihood_ratio_test", "permutation_test")
 ) %dopar% {  
   
-  theta <- generate_theta(D)
-  df    <- generate_dataset_H0(theta, D, n1, n2, M)
+  theta <- generate_theta(D, 'gamma')
+  df <- generate_dataset_H0(theta, 'gamma', n1, n2, M)
   
   df1 <- subset(df, id<=n1)
   df2 <- subset(df, id>n1)
