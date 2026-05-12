@@ -34,7 +34,7 @@ log_likelihood_P <- function(df, P) {
 log_likelihood_omega <- function(df, omega){
   sum(dgamma(df$time,
              shape=omega[df$state, 'shape'],
-             rate=omega[df$state.h, 'rate'],
+             rate=omega[df$state, 'rate'],
              log=TRUE))
 }
 
