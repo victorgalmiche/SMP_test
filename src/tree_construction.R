@@ -284,10 +284,72 @@ source('src/two_samples_test.R')
 library(TraMineR)
 data(mvad)
 trajectories <- mvad[, 17:86]
-covariates <- mvad[, 1:14]
+covariates <- mvad[, 3:14]
 traj_df <- traj_to_df(trajectories)
 D <- 6
 
+
+find_best_split <- function(data, y, min_leaf, my_pvalue_algo) {
+  best <- list(pval = 1, var = NULL, left_level = NULL)
+  
+  for (var in names(data)) {
+    x      <- data[[var]]
+    levs   <- levels(x)   # Always 2 levels
+    left   <- y[x == levs[1]]
+    right  <- y[x == levs[2]]
+    
+    if (length(left) < min_leaf || length(right) < min_leaf) next
+    
+    pval <- my_pvalue_algo(left, right)
+    
+    if (pval < best$pval)
+      best <- list(pval = pval, var = var, left_level = levs[1])
+  }
+  best
+}
+
+build_tree <- function(data, y_col, min_obs = 20, min_leaf = 5,
+                       alpha = 0.05, max_depth = 5, depth = 0) {
+  y <- data[[y_col]]
+  X <- data[, names(data) != y_col, drop = FALSE]
+  
+  # Conditions d'arrêt
+  if (depth >= max_depth || nrow(data) < min_obs || ncol(X) == 0)
+    return(list(type = "leaf", value = mean(y), n = nrow(data)))
+  
+  best <- find_best_split(X, y, min_leaf, my_pvalue_algo)
+  
+  # Aucune coupure significative
+  if (is.null(best$var) || best$pval >= alpha)
+    return(list(type = "leaf", value = mean(y), n = nrow(data)))
+  
+  # Partition
+  go_left  <- data[[best$var]] == best$left_level
+  left_data  <- data[ go_left, ]
+  right_data <- data[!go_left, ]
+  
+  list(
+    type        = "node",
+    var         = best$var,
+    left_level  = best$left_level,
+    right_level = levels(data[[best$var]])[levels(data[[best$var]]) != best$left_level],
+    pval        = best$pval,
+    n           = nrow(data),
+    left        = build_tree(left_data,  y_col, min_obs, min_leaf, alpha, max_depth, depth + 1),
+    right       = build_tree(right_data, y_col, min_obs, min_leaf, alpha, max_depth, depth + 1)
+  )
+}
+
+print_tree <- function(node, indent = 0) {
+  pad <- strrep("  ", indent)
+  if (node$type == "leaf") {
+    cat(pad, "└─ Leaf: mean =", round(node$value, 3), "  (n =", node$n, ")\n")
+  } else {
+    cat(pad, "├─ [", node$var, "] p =", formatC(node$pval, digits = 3, format = "e"), "\n")
+    cat(pad, "  ├─ ==", node$left_level,  "\n"); print_tree(node$left,  indent + 2)
+    cat(pad, "  └─ ==", node$right_level, "\n"); print_tree(node$right, indent + 2)
+  }
+}
 
 # Le passer au wrapper
 make_test_fn <- function(test_fn) {
