@@ -19,7 +19,10 @@ likelihood_ratio_test <- function(df1, df2, D, law_sojourn='gamma'){
   # if (!is.finite(lambda) || lambda < 0) return(NA)
   
   # The number of degrees of freedom depends on D
-  dof <- D^2+D-1
+  dof <- switch(law_sojourn, 
+                gamma=D^2+D-1,
+                weibull=D^2+D-1,
+                exponential=D^2-1)
   p_asymp <- 1-pchisq(lambda, df=dof)
   p_asymp
 }

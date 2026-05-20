@@ -16,14 +16,14 @@ results <- foreach(
               "likelihood_ratio_test", "permutation_test")
 ) %dopar% {  
   
-  theta <- generate_theta(D, 'weibull')
-  df <- generate_dataset_H0(theta, 'weibull', n1, n2, M)
+  theta <- generate_theta(D, 'exponential')
+  df <- generate_dataset_H0(theta, 'exponential', n1, n2, M)
   
   df1 <- subset(df, id<=n1)
   df2 <- subset(df, id>n1)
   
-  p_asymp  <- likelihood_ratio_test(df1, df2, D, 'weibull')
-  p_permutation <- permutation_test(df1, df2, D, 'weibull')
+  p_asymp  <- likelihood_ratio_test(df1, df2, D, 'exponential')
+  p_permutation <- permutation_test(df1, df2, D, 'exponential')
   
   c(p_asymp=p_asymp, p_permutation=p_permutation)
 }
