@@ -1,7 +1,6 @@
 ### REGRESSION TREE CONSTRUCTION
 # Split criterion: p-value of the two-sample test
 
-
 # Data structure:
 # - trajectories: data.frame, each row is a trajectory
 # - covariates: data.frame, each row are the covariate for an individual
@@ -29,257 +28,77 @@ traj_to_df <- function(trajectories) {
   do.call(rbind, res)
 }
 
-
-
-
-# -----------------------------------------------------------------------------
-# 2. FONCTIONS UTILITAIRES
-# -----------------------------------------------------------------------------
-
-# Trouve le meilleur split pour une covariable numérique
-best_split_numeric <- function(covar_values, trajectories, test_fn, min_node_size) {
-  n <- length(covar_values)
-  sorted_vals <- sort(unique(covar_values))
+# Find the best split among the different covariates
+# We suppose that each covariates are binary categorical (2 modalities)
+find_best_split <- function(df, covariates, min_leaf, pvalue_algo) {
+  best <- list(pval = 1, var = NULL, left_level = NULL)
   
-  # Les seuils candidats sont les moyennes entre valeurs consécutives
-  thresholds <- (sorted_vals[-length(sorted_vals)] + sorted_vals[-1]) / 2
-  
-  best_pval  <- 1
-  best_thresh <- NA
-  
-  for (thresh in thresholds) {
-    idx_left  <- which(covar_values <= thresh)
-    idx_right <- which(covar_values >  thresh)
+  for (var in names(covariates)) {
+    x <- covariates[[var]]
+    levs <- levels(x)   
+    left_ids <- which(x==levs[1])
     
-    if (length(idx_left) < min_node_size || length(idx_right) < min_node_size) next
+    df_left <- subset(df, id %in% left_ids)
+    df_right <- subset(df, !(id %in% left_ids))
     
-    pval <- tryCatch(
-      {p <- test_fn(trajectories[idx_left, , drop = FALSE], 
-                   trajectories[idx_right, , drop = FALSE])
-      if (is.na(p) || is.nan(p)) 1 else p},
-      error = function(e) 1
-    )
+    if (length(unique(df_left$id)) < min_leaf || 
+        length(unique(df_right$id)) < min_leaf) next 
     
-    if (pval < best_pval) {
-      best_pval   <- pval
-      best_thresh <- thresh
-    }
+    pval <- pvalue_algo(df_left, df_right)
+    
+    if (pval < best$pval)
+      best <- list(pval = pval, var = var, left_level = levs[1], right_level = levs[2])
   }
-  list(pval = best_pval, threshold = best_thresh)
-}
-
-# Trouve le meilleur split pour une covariable catégorielle
-best_split_categorical <- function(covar_values, trajectories, test_fn, min_node_size) {
-  levels_covar <- unique(covar_values)
-  if (length(levels_covar) < 2) return(list(pval = 1, groups = NULL))
-  
-  # Génère toutes les bipartitions non triviales des niveaux
-  generate_bipartitions <- function(lvls) {
-    n <- length(lvls)
-    parts <- list()
-    for (k in 1:(2^(n-1) - 1)) {
-      bits <- as.integer(intToBits(k))[1:n]
-      left  <- lvls[bits == 1]
-      right <- lvls[bits == 0]
-      parts[[length(parts) + 1]] <- list(left = left, right = right)
-    }
-    parts
-  }
-  
-  partitions <- generate_bipartitions(levels_covar)
-  best_pval  <- 1
-  best_groups <- NULL
-  
-  for (part in partitions) {
-    idx_left  <- which(covar_values %in% part$left)
-    idx_right <- which(covar_values %in% part$right)
-    
-    if (length(idx_left) < min_node_size || length(idx_right) < min_node_size) next
-    
-    pval <- tryCatch(
-      {p <- test_fn(trajectories[idx_left, , drop = FALSE], 
-                    trajectories[idx_right, , drop = FALSE])
-      if (is.na(p) || is.nan(p)) 1 else p},
-      error = function(e) 1
-    )
-    
-    if (pval < best_pval) {
-      best_pval   <- pval
-      best_groups <- part
-    }
-  }
-  list(pval = best_pval, groups = best_groups)
+  best
 }
 
 
-# -----------------------------------------------------------------------------
-# 3. CONSTRUCTION RÉCURSIVE DE L'ARBRE
-# -----------------------------------------------------------------------------
-
-build_tree <- function(
-    trajectories,   # matrice/data.frame des trajectoires (n x T)
-    covariates,     # data.frame des covariables (n x p)
-    indices,        # indices courants dans le nœud
-    test_fn,        # fonction two_sample_test
-    alpha        = 0.05,   # seuil de p-value pour accepter un split
-    max_depth    = 5,      # profondeur maximale
-    min_node_size = 10,    # taille minimale d'un nœud
-    depth        = 0       # profondeur courante (usage interne)
-) {
+# Building the tree recursively 
+build_tree <- function(df, covariates, pvalue_algo, min_obs = 20, min_leaf = 5,
+                       alpha = 0.05, max_depth = 5, depth = 0) {
+  pop_size <- length(unique(df$id))
   
-  node <- list(
-    indices  = indices,
-    n        = length(indices),
-    depth    = depth,
-    is_leaf  = TRUE,
-    split    = NULL,
-    left     = NULL,
-    right    = NULL
+  # Stopping criterion
+  if (depth >= max_depth || pop_size < min_obs)
+    return(list(type = "leaf", n = pop_size))
+  
+  best <- find_best_split(df, covariates, min_leaf, pvalue_algo)
+  
+  # No significant split
+  if (is.null(best$var) || best$pval >= alpha)
+    return(list(type = "leaf", n = pop_size))
+  
+  # Split and recursively construct the subtree
+  left_ids <- which(covariates[[best$var]] == best$left_level)
+  right_ids <- which(covariates[[best$var]] == best$right_level)
+  df_left <- subset(df, id %in% left_ids)
+  df_right <- subset(df, id %in% right_ids)
+  
+  list(
+    type = "node",
+    var = best$var,
+    left_level = best$left_level,
+    right_level = best$right_level,
+    pval = best$pval,
+    n = pop_size,
+    left = build_tree(df_left, covariates, pvalue_algo, min_obs, min_leaf, alpha, max_depth, depth + 1),
+    right = build_tree(df_right, covariates, pvalue_algo, min_obs, min_leaf, alpha, max_depth, depth + 1)
   )
-  
-  # Conditions d'arrêt
-  if (depth >= max_depth || length(indices) < 2 * min_node_size) {
-    return(node)
-  }
-  
-  traj_node  <- trajectories[indices, , drop = FALSE]
-  covar_node <- covariates[indices, , drop = FALSE]
-  
-  best_pval  <- 1
-  best_var   <- NULL
-  best_split_info <- NULL
-  
-  # Cherche le meilleur split parmi toutes les covariables
-  for (var in names(covar_node)) {
-    vals <- covar_node[[var]]
-    
-    if (is.numeric(vals) || is.integer(vals)) {
-      res <- best_split_numeric(vals, traj_node, test_fn, min_node_size)
-      split_type <- "numeric"
-    } else {
-      res <- best_split_categorical(vals, traj_node, test_fn, min_node_size)
-      split_type <- "categorical"
-    }
-    
-    if (res$pval < best_pval) {
-      best_pval <- res$pval
-      best_var  <- var
-      best_split_info <- c(res, list(type = split_type))
-    }
-  }
-  
-  # Applique le split si la p-value est significative
-  if (!is.null(best_var) && best_pval <= alpha) {
-    vals <- covar_node[[best_var]]
-    
-    if (best_split_info$type == "numeric") {
-      thresh   <- best_split_info$threshold
-      idx_left  <- indices[vals <= thresh]
-      idx_right <- indices[vals >  thresh]
-      split_desc <- list(
-        variable  = best_var,
-        type      = "numeric",
-        threshold = thresh,
-        pvalue    = best_pval
-      )
-    } else {
-      left_grp  <- best_split_info$groups$left
-      right_grp <- best_split_info$groups$right
-      idx_left  <- indices[vals %in% left_grp]
-      idx_right <- indices[vals %in% right_grp]
-      split_desc <- list(
-        variable    = best_var,
-        type        = "categorical",
-        left_levels = left_grp,
-        pvalue      = best_pval
-      )
-    }
-    
-    if (length(idx_left) >= min_node_size && length(idx_right) >= min_node_size) {
-      node$is_leaf <- FALSE
-      node$split   <- split_desc
-      node$left    <- build_tree(trajectories, covariates, idx_left,
-                                 test_fn, alpha, max_depth, min_node_size, depth + 1)
-      node$right   <- build_tree(trajectories, covariates, idx_right,
-                                 test_fn, alpha, max_depth, min_node_size, depth + 1)
-    }
-  }
-  
-  node
 }
 
-
-# -----------------------------------------------------------------------------
-# 4. AFFICHAGE DE L'ARBRE
-# -----------------------------------------------------------------------------
-
-print_tree <- function(node, prefix = "", is_last = TRUE) {
-  connector  <- if (is_last) "\u2514\u2500\u2500 " else "\u251c\u2500\u2500 "
-  child_pref <- if (is_last) "    " else "\u2502   "
-  
-  if (node$is_leaf) {
-    cat(prefix, connector,
-        "[FEUILLE] n = ", node$n,
-        " | profondeur = ", node$depth, "\n", sep = "")
+# Print function 
+print_tree <- function(node, indent = 0) {
+  pad <- strrep("  ", indent)
+  if (node$type == "leaf") {
+    cat(pad, "└─ Leaf:  (n =", node$n, ")\n")
   } else {
-    sp <- node$split
-    if (sp$type == "numeric") {
-      split_str <- paste0(sp$variable, " <= ", round(sp$threshold, 3))
-    } else {
-      split_str <- paste0(sp$variable, " in {", paste(sp$left_levels, collapse = ", "), "}")
-    }
-    cat(prefix, connector,
-        "[SPLIT] ", split_str,
-        "  (p = ", format(sp$pvalue, digits = 3, scientific = TRUE), ")",
-        "  n = ", node$n, "\n", sep = "")
-    
-    print_tree(node$left,  paste0(prefix, child_pref), is_last = FALSE)
-    print_tree(node$right, paste0(prefix, child_pref), is_last = TRUE)
+    cat(pad, "├─ [", node$var, "] p =", formatC(node$pval, digits = 3, format = "e"), "\n")
+    cat(pad, "  ├─ ==", node$left_level,  "\n"); print_tree(node$left,  indent + 2)
+    cat(pad, "  └─ ==", node$right_level, "\n"); print_tree(node$right, indent + 2)
   }
 }
 
-
-# -----------------------------------------------------------------------------
-# 5. PRÉDICTION (assignation d'un individu à une feuille)
-# -----------------------------------------------------------------------------
-
-predict_node <- function(node, new_covariates) {
-  # new_covariates : data.frame d'une seule ligne
-  if (node$is_leaf) return(node)
-  
-  sp  <- node$split
-  val <- new_covariates[[sp$variable]]
-  
-  go_left <- if (sp$type == "numeric") {
-    val <= sp$threshold
-  } else {
-    val %in% sp$left_levels
-  }
-  
-  if (go_left) predict_node(node$left,  new_covariates)
-  else         predict_node(node$right, new_covariates)
-}
-
-
-# -----------------------------------------------------------------------------
-# 6. EXTRACTION DES FEUILLES (pour analyse post-hoc)
-# -----------------------------------------------------------------------------
-
-get_leaves <- function(node, leaves = list()) {
-  if (node$is_leaf) {
-    leaves[[length(leaves) + 1]] <- node
-  } else {
-    leaves <- get_leaves(node$left,  leaves)
-    leaves <- get_leaves(node$right, leaves)
-  }
-  leaves
-}
-
-
-# =============================================================================
-# EXEMPLE D'UTILISATION
-# =============================================================================
-
+# Use example w/ mvad data
 source('src/two_samples_test.R')
 library(TraMineR)
 data(mvad)
@@ -288,100 +107,15 @@ covariates <- mvad[, 3:14]
 traj_df <- traj_to_df(trajectories)
 D <- 6
 
-
-find_best_split <- function(data, y, min_leaf, my_pvalue_algo) {
-  best <- list(pval = 1, var = NULL, left_level = NULL)
-  
-  for (var in names(data)) {
-    x      <- data[[var]]
-    levs   <- levels(x)   # Always 2 levels
-    left   <- y[x == levs[1]]
-    right  <- y[x == levs[2]]
-    
-    if (length(left) < min_leaf || length(right) < min_leaf) next
-    
-    pval <- my_pvalue_algo(left, right)
-    
-    if (pval < best$pval)
-      best <- list(pval = pval, var = var, left_level = levs[1])
-  }
-  best
+# Function for p_value computation
+alg <- function(df1, df2){
+  likelihood_ratio_test(df1, df2, D, 'exponential')
 }
 
-build_tree <- function(data, y_col, min_obs = 20, min_leaf = 5,
-                       alpha = 0.05, max_depth = 5, depth = 0) {
-  y <- data[[y_col]]
-  X <- data[, names(data) != y_col, drop = FALSE]
-  
-  # Conditions d'arrêt
-  if (depth >= max_depth || nrow(data) < min_obs || ncol(X) == 0)
-    return(list(type = "leaf", value = mean(y), n = nrow(data)))
-  
-  best <- find_best_split(X, y, min_leaf, my_pvalue_algo)
-  
-  # Aucune coupure significative
-  if (is.null(best$var) || best$pval >= alpha)
-    return(list(type = "leaf", value = mean(y), n = nrow(data)))
-  
-  # Partition
-  go_left  <- data[[best$var]] == best$left_level
-  left_data  <- data[ go_left, ]
-  right_data <- data[!go_left, ]
-  
-  list(
-    type        = "node",
-    var         = best$var,
-    left_level  = best$left_level,
-    right_level = levels(data[[best$var]])[levels(data[[best$var]]) != best$left_level],
-    pval        = best$pval,
-    n           = nrow(data),
-    left        = build_tree(left_data,  y_col, min_obs, min_leaf, alpha, max_depth, depth + 1),
-    right       = build_tree(right_data, y_col, min_obs, min_leaf, alpha, max_depth, depth + 1)
-  )
-}
-
-print_tree <- function(node, indent = 0) {
-  pad <- strrep("  ", indent)
-  if (node$type == "leaf") {
-    cat(pad, "└─ Leaf: mean =", round(node$value, 3), "  (n =", node$n, ")\n")
-  } else {
-    cat(pad, "├─ [", node$var, "] p =", formatC(node$pval, digits = 3, format = "e"), "\n")
-    cat(pad, "  ├─ ==", node$left_level,  "\n"); print_tree(node$left,  indent + 2)
-    cat(pad, "  └─ ==", node$right_level, "\n"); print_tree(node$right, indent + 2)
-  }
-}
-
-# Le passer au wrapper
-make_test_fn <- function(test_fn) {
-  function(traj_group1, traj_group2) {
-    df1 <- traj_to_df(traj_group1)
-    df2 <- traj_to_df(traj_group2)
-    test_fn(df1, df2, D)
-  }
-}
-
-# Construction de l'arbre
-tree <- build_tree(
-  trajectories  = trajectories,
-  covariates    = covariates,
-  indices       = 1:712,
-  test_fn       = make_test_fn(likelihood_ratio_test),
-  alpha         = 0.05,
-  max_depth     = 4,
-  min_node_size = 15
-)
+# Tree construction
+tree <- build_tree(traj_df, covariates, alg)
 
 # Affichage
 cat("=== ARBRE DE TRAJECTOIRES ===\n\n")
 print_tree(tree)
 
-# Feuilles
-leaves <- get_leaves(tree)
-cat("\n\nNombre de feuilles :", length(leaves), "\n")
-cat("Tailles des feuilles :", sapply(leaves, `[[`, "n"), "\n")
-
-# Prédiction pour un nouvel individu
-new_ind <- data.frame(age = 35, gender = "F", diplome = "bac+5", statut = "emploi")
-leaf <- predict_node(tree, new_ind)
-cat("\nNouvel individu assigné à la feuille de profondeur", leaf$depth,
-    "avec", leaf$n, "individus\n")

@@ -57,6 +57,8 @@ parametric_bootstrap <- function(df1, df2, D, law_sojourn='gamma', R=100) {
 # Permutation test
 permutation_test <- function(df1, df2, D, law_sojourn='gamma', R=100) {
   df <- rbind(df1, df2)
+  n1 <- length(unique(df1$id))
+  n2 <- length(unique(df2$id))
   
   global_est <- mle_fit(df, D, law_sojourn)
   est1 <- mle_fit(df1, D, law_sojourn)

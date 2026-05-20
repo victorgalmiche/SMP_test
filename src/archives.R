@@ -1,243 +1,255 @@
 
+# -----------------------------------------------------------------------------
+# 2. FONCTIONS UTILITAIRES
+# -----------------------------------------------------------------------------
 
-softmax <- function(x) {
-  e <- exp(x - max(x))  # stabilité numérique
-  e / sum(e)
-}
-
-
-decode_P <- function(params, D){
-  # params un vecteur de longueur Dx(D-1) (logits)
-  matrix_params <- matrix(params, nrow=D)
-  coef <- t(apply(matrix_params, 1, softmax))
-  P <- matrix(0, nrow=D, ncol=D)
-  for (i in 1:D){
-    P[i, (1:D)[-i]] <- coef[i, ]
-  }
-  return(P)
-}
-
-
-neg_ll_params_P <- function(params_P, df, D) {
-  P <- decode_P(params_P, D)
-  ll <- log_likelihood_P(df, P)
-  if (!is.finite(ll)) return(1e10)
-  -ll
-}
-
-# MLE FOR WEIBULL
-
-log_likelihood_omega <- function(df, omega){
-  sum(dweibull(df$time,
-               shape=omega[df$state.h, 'eta'],
-               scale=omega[df$state.h, 'beta'],
-               log=TRUE))
-}
-
-decode_omega <- function(params, D) {
-  matrix_params <- matrix(params, nrow = D)
-  matrix_params <- pmax(pmin(matrix_params, 10), -10)  # clamp dans [-10, 10]
-  omega <- exp(matrix_params)
-  colnames(omega) <- c('eta', 'beta')
-  return(omega)
-}
-
-init_params_omega <- function(df, D) {
-  params <- numeric(2 * D)
-  for (s in 1:D) {
-    times <- df$time[df$state.h == s]
-    if (length(times) < 2) next
-    m  <- mean(times)
-    cv <- sd(times) / m
-    # Closed-form approximation: eta ≈ (cv)^{-1.086} (Menon 1963 approximation)
-    eta_init  <- max(0.1, cv^(-1.086))
-    beta_init <- max(1e-6, m / gamma(1 + 1/eta_init))
-    params[s]     <- log(eta_init)
-    params[s + D] <- log(beta_init)
-  }
-  params
-}
-
-
-neg_ll_params_omega <- function(params_omega, df, D) {
-  omega <- decode_omega(params_omega, D)
-  if (any(omega <= 0) || any(!is.finite(omega))) return(1e10)
-  ll <- log_likelihood_omega(df, omega)
-  if (!is.finite(ll)) return(1e10)
-  -ll
-}
-
-
-#### ENCODAGE DES PARAMETRES ###
-decode_omega <- function(params, D) {
-  matrix_params <- matrix(params, nrow = D)
-  omega <- exp(matrix_params)
-  colnames(omega) <- c('a', 'lambda')
-  return(omega)
-}
-
-
-
-library(fitdistrplus)
-
-mle_omega <- function(df, D) {
-  # Initialize matrix of parameters
-  omega <- matrix(1, nrow = D, ncol = 2,
-                  dimnames = list(1:D, c("a", "lambda")))
+# Trouve le meilleur split pour une covariable numérique
+best_split_numeric <- function(covar_values, trajectories, test_fn, min_node_size) {
+  n <- length(covar_values)
+  sorted_vals <- sort(unique(covar_values))
   
-  for (i in 1:D) {
-    times_i <- df$time[df$state.h == i]
+  # Les seuils candidats sont les moyennes entre valeurs consécutives
+  thresholds <- (sorted_vals[-length(sorted_vals)] + sorted_vals[-1]) / 2
+  
+  best_pval  <- 1
+  best_thresh <- NA
+  
+  for (thresh in thresholds) {
+    idx_left  <- which(covar_values <= thresh)
+    idx_right <- which(covar_values >  thresh)
     
-    if (length(times_i) < 2) {
-      warning(paste("État", i, ": pas assez d'observations"))
-      next
-    }
+    if (length(idx_left) < min_node_size || length(idx_right) < min_node_size) next
     
-    fit <- fitdist(times_i, distr = "gamma", method = "mle",
-                   lower = c(shape = 1e-6, rate = 1e-6))
-    
-    omega[i, "a"]      <- fit$estimate["shape"]
-    omega[i, "lambda"] <- fit$estimate["rate"]
-  }
-  omega
-}
-
-mle_gamma_closed <- function(x) {
-  s <- log(mean(x)) - mean(log(x))   # toujours > 0
-  # Approximation de Choi & Wette (1969) pour shape
-  shape <- (3 - s + sqrt((s-3)^2 + 24*s)) / (12*s)
-  # Affinage par Newton (1-2 itérations suffisent)
-  for (k in 1:5) {
-    shape <- shape - (log(shape) - digamma(shape) - s) /
-      (1/shape - trigamma(shape))
-  }
-  rate <- shape / mean(x)
-  c(a = shape, lambda = rate)
-}
-
-mle_omega_closed <- function(df, D) {
-  t(sapply(1:D, function(i) {
-    times_i <- df$time[df$state.h == i]
-    if (length(times_i) < 2) return(c(a=1, lambda=1))
-    mle_gamma_closed(times_i)
-  }))
-}
-
-mle_omega <- function(df, D){
-  omega <- matrix(1, nrow=D, ncol=2, dimnames=list(1:D, c("a", "lambda")))
-  for (i in 1:D){
-    times_i <- df$time[df$state.h==i]
-    
-    if (length(times_i) < 2) {
-      warning(paste('State', i, 'has less than 2 valid observations'))
-      next
-    }
-    
-    # Objective function: negative log likelihood
-    nll <- function(pars){
-      if (pars[1] <= 0 || pars[2] <= 0) return(1e10)
-      ll <- sum(dgamma(times_i, shape=pars[1], rate=pars[2], log=TRUE))
-      if (!is.finite(ll)) return(1e10)
-      -ll
-    }
-    
-    # Starting values using method of moments
-    mean_x <- mean(times_i)
-    var_x <- var(times_i)
-    
-    # Handle invalid variance
-    if (var_x <= 0 || !is.finite(var_x)) {
-      var_x <- (mean_x / 4)^2
-    }
-    
-    shape_start <- mean_x^2 / var_x
-    rate_start <- mean_x / var_x
-    
-    # Bound starting values to reasonable range
-    shape_start <- pmax(0.01, pmin(shape_start, 500))
-    rate_start <- pmax(0.001, pmin(rate_start, 500))
-    
-    # Test starting values
-    if (!is.finite(nll(c(shape_start, rate_start)))) {
-      warning(paste('State', i, 'invalid starting values'))
-      next
-    }
-    
-    # Optimize with L-BFGS-B (has parameter bounds)
-    result <- tryCatch(
-      optim(c(shape_start, rate_start), nll, 
-            method='L-BFGS-B',
-            lower=c(0.001, 0.001),
-            upper=c(1000, 1000),
-            control=list(maxit=5000)),
-      error = function(e) {
-        warning(paste('State', i, 'optimization error'))
-        list(par=c(shape_start, rate_start), convergence=1)
-      }
+    pval <- tryCatch(
+      {p <- test_fn(trajectories[idx_left, , drop = FALSE], 
+                    trajectories[idx_right, , drop = FALSE])
+      if (is.na(p) || is.nan(p)) 1 else p},
+      error = function(e) 1
     )
     
-    omega[i, 'a'] <- result$par[1]
-    omega[i, 'lambda'] <- result$par[2]
+    if (pval < best_pval) {
+      best_pval   <- pval
+      best_thresh <- thresh
+    }
   }
-  omega
+  list(pval = best_pval, threshold = best_thresh)
 }
 
-
-mle_omega_bfgs <- function(df, D){
-  omega <- matrix(1, nrow=D, ncol=2, dimnames=list(1:D, c("a", "lambda")))
-  for (i in 1:D){
-    times_i <- df$time[df$state.h==i]
-    
-    if (length(times_i) < 2) {
-      warning(paste('State', i, 'has less than 2 valid observations'))
-      next
+# Trouve le meilleur split pour une covariable catégorielle
+best_split_categorical <- function(covar_values, trajectories, test_fn, min_node_size) {
+  levels_covar <- unique(covar_values)
+  if (length(levels_covar) < 2) return(list(pval = 1, groups = NULL))
+  
+  # Génère toutes les bipartitions non triviales des niveaux
+  generate_bipartitions <- function(lvls) {
+    n <- length(lvls)
+    parts <- list()
+    for (k in 1:(2^(n-1) - 1)) {
+      bits <- as.integer(intToBits(k))[1:n]
+      left  <- lvls[bits == 1]
+      right <- lvls[bits == 0]
+      parts[[length(parts) + 1]] <- list(left = left, right = right)
     }
+    parts
+  }
+  
+  partitions <- generate_bipartitions(levels_covar)
+  best_pval  <- 1
+  best_groups <- NULL
+  
+  for (part in partitions) {
+    idx_left  <- which(covar_values %in% part$left)
+    idx_right <- which(covar_values %in% part$right)
     
-    # Objective function: negative log likelihood
-    nll <- function(pars){
-      if (pars[1] <= 0 || pars[2] <= 0) return(1e10)
-      ll <- sum(dgamma(times_i, shape=pars[1], rate=pars[2], log=TRUE))
-      if (!is.finite(ll)) return(1e10)
-      -ll
-    }
+    if (length(idx_left) < min_node_size || length(idx_right) < min_node_size) next
     
-    # Starting values using method of moments
-    mean_x <- mean(times_i)
-    var_x <- var(times_i)
-    
-    # Handle invalid variance
-    if (var_x <= 0 || !is.finite(var_x)) {
-      var_x <- (mean_x / 4)^2
-    }
-    
-    shape_start <- mean_x^2 / var_x
-    rate_start <- mean_x / var_x
-    
-    # Bound starting values to reasonable range
-    shape_start <- pmax(0.01, pmin(shape_start, 500))
-    rate_start <- pmax(0.001, pmin(rate_start, 500))
-    
-    # Test starting values
-    if (!is.finite(nll(c(shape_start, rate_start)))) {
-      warning(paste('State', i, 'invalid starting values'))
-      next
-    }
-    
-    # Optimize w/ Nelder-Mead
-    result <- tryCatch(
-      optim(c(shape_start, rate_start), nll, 
-            method='L-BFGS-B',
-            lower = c(0.001, 0.001),
-            control=list(maxit=5000)),
-      error = function(e) {
-        warning(paste('State', i, 'optimization error'))
-        list(par=c(shape_start, rate_start), convergence=1)
-      }
+    pval <- tryCatch(
+      {p <- test_fn(trajectories[idx_left, , drop = FALSE], 
+                    trajectories[idx_right, , drop = FALSE])
+      if (is.na(p) || is.nan(p)) 1 else p},
+      error = function(e) 1
     )
     
-    omega[s, 'a'] <- result$par[1]
-    omega[s, 'lambda'] <- result$par[2]
+    if (pval < best_pval) {
+      best_pval   <- pval
+      best_groups <- part
+    }
   }
-  omega
+  list(pval = best_pval, groups = best_groups)
 }
 
+
+# -----------------------------------------------------------------------------
+# 3. CONSTRUCTION RÉCURSIVE DE L'ARBRE
+# -----------------------------------------------------------------------------
+
+build_tree <- function(
+    trajectories,   # matrice/data.frame des trajectoires (n x T)
+    covariates,     # data.frame des covariables (n x p)
+    indices,        # indices courants dans le nœud
+    test_fn,        # fonction two_sample_test
+    alpha        = 0.05,   # seuil de p-value pour accepter un split
+    max_depth    = 5,      # profondeur maximale
+    min_node_size = 10,    # taille minimale d'un nœud
+    depth        = 0       # profondeur courante (usage interne)
+) {
+  
+  node <- list(
+    indices  = indices,
+    n        = length(indices),
+    depth    = depth,
+    is_leaf  = TRUE,
+    split    = NULL,
+    left     = NULL,
+    right    = NULL
+  )
+  
+  # Conditions d'arrêt
+  if (depth >= max_depth || length(indices) < 2 * min_node_size) {
+    return(node)
+  }
+  
+  traj_node  <- trajectories[indices, , drop = FALSE]
+  covar_node <- covariates[indices, , drop = FALSE]
+  
+  best_pval  <- 1
+  best_var   <- NULL
+  best_split_info <- NULL
+  
+  # Cherche le meilleur split parmi toutes les covariables
+  for (var in names(covar_node)) {
+    vals <- covar_node[[var]]
+    
+    if (is.numeric(vals) || is.integer(vals)) {
+      res <- best_split_numeric(vals, traj_node, test_fn, min_node_size)
+      split_type <- "numeric"
+    } else {
+      res <- best_split_categorical(vals, traj_node, test_fn, min_node_size)
+      split_type <- "categorical"
+    }
+    
+    if (res$pval < best_pval) {
+      best_pval <- res$pval
+      best_var  <- var
+      best_split_info <- c(res, list(type = split_type))
+    }
+  }
+  
+  # Applique le split si la p-value est significative
+  if (!is.null(best_var) && best_pval <= alpha) {
+    vals <- covar_node[[best_var]]
+    
+    if (best_split_info$type == "numeric") {
+      thresh   <- best_split_info$threshold
+      idx_left  <- indices[vals <= thresh]
+      idx_right <- indices[vals >  thresh]
+      split_desc <- list(
+        variable  = best_var,
+        type      = "numeric",
+        threshold = thresh,
+        pvalue    = best_pval
+      )
+    } else {
+      left_grp  <- best_split_info$groups$left
+      right_grp <- best_split_info$groups$right
+      idx_left  <- indices[vals %in% left_grp]
+      idx_right <- indices[vals %in% right_grp]
+      split_desc <- list(
+        variable    = best_var,
+        type        = "categorical",
+        left_levels = left_grp,
+        pvalue      = best_pval
+      )
+    }
+    
+    if (length(idx_left) >= min_node_size && length(idx_right) >= min_node_size) {
+      node$is_leaf <- FALSE
+      node$split   <- split_desc
+      node$left    <- build_tree(trajectories, covariates, idx_left,
+                                 test_fn, alpha, max_depth, min_node_size, depth + 1)
+      node$right   <- build_tree(trajectories, covariates, idx_right,
+                                 test_fn, alpha, max_depth, min_node_size, depth + 1)
+    }
+  }
+  
+  node
+}
+
+
+# -----------------------------------------------------------------------------
+# 4. AFFICHAGE DE L'ARBRE
+# -----------------------------------------------------------------------------
+
+print_tree <- function(node, prefix = "", is_last = TRUE) {
+  connector  <- if (is_last) "\u2514\u2500\u2500 " else "\u251c\u2500\u2500 "
+  child_pref <- if (is_last) "    " else "\u2502   "
+  
+  if (node$is_leaf) {
+    cat(prefix, connector,
+        "[FEUILLE] n = ", node$n,
+        " | profondeur = ", node$depth, "\n", sep = "")
+  } else {
+    sp <- node$split
+    if (sp$type == "numeric") {
+      split_str <- paste0(sp$variable, " <= ", round(sp$threshold, 3))
+    } else {
+      split_str <- paste0(sp$variable, " in {", paste(sp$left_levels, collapse = ", "), "}")
+    }
+    cat(prefix, connector,
+        "[SPLIT] ", split_str,
+        "  (p = ", format(sp$pvalue, digits = 3, scientific = TRUE), ")",
+        "  n = ", node$n, "\n", sep = "")
+    
+    print_tree(node$left,  paste0(prefix, child_pref), is_last = FALSE)
+    print_tree(node$right, paste0(prefix, child_pref), is_last = TRUE)
+  }
+}
+
+
+# -----------------------------------------------------------------------------
+# 5. PRÉDICTION (assignation d'un individu à une feuille)
+# -----------------------------------------------------------------------------
+
+predict_node <- function(node, new_covariates) {
+  # new_covariates : data.frame d'une seule ligne
+  if (node$is_leaf) return(node)
+  
+  sp  <- node$split
+  val <- new_covariates[[sp$variable]]
+  
+  go_left <- if (sp$type == "numeric") {
+    val <= sp$threshold
+  } else {
+    val %in% sp$left_levels
+  }
+  
+  if (go_left) predict_node(node$left,  new_covariates)
+  else         predict_node(node$right, new_covariates)
+}
+
+
+# -----------------------------------------------------------------------------
+# 6. EXTRACTION DES FEUILLES (pour analyse post-hoc)
+# -----------------------------------------------------------------------------
+
+get_leaves <- function(node, leaves = list()) {
+  if (node$is_leaf) {
+    leaves[[length(leaves) + 1]] <- node
+  } else {
+    leaves <- get_leaves(node$left,  leaves)
+    leaves <- get_leaves(node$right, leaves)
+  }
+  leaves
+}
+
+
+# Feuilles
+leaves <- get_leaves(tree)
+cat("\n\nNombre de feuilles :", length(leaves), "\n")
+cat("Tailles des feuilles :", sapply(leaves, `[[`, "n"), "\n")
+
+# Prédiction pour un nouvel individu
+new_ind <- data.frame(age = 35, gender = "F", diplome = "bac+5", statut = "emploi")
+leaf <- predict_node(tree, new_ind)
+cat("\nNouvel individu assigné à la feuille de profondeur", leaf$depth,
+    "avec", leaf$n, "individus\n")
